@@ -1,4 +1,5 @@
-from modal import gpu, Mount
+from modal import gpu, Mount, Image, Secret
+import os
 
 from common import stub, N_GPUS, GPU_MEM, BASE_MODELS, VOLUME_CONFIG
 
@@ -35,14 +36,31 @@ def library_entrypoint(config):
     mounts=[
         Mount.from_local_dir("./datasets", remote_path="/root"),
     ],
+    image=Image.debian_slim().pip_install("wandb"),
+    secret=Secret.from_name("wandb"),
     gpu=gpu.A100(count=N_GPUS, memory=GPU_MEM),
     timeout=3600 * 12,
 )
 def train(train_kwargs):
     from torch.distributed.run import elastic_launch, parse_args, config_from_args
+    import wandb
+    wandb.login(key=os.environ["WANDB_API_KEY"])
 
     torch_args = parse_args(["--nnodes", "1", "--nproc_per_node", str(N_GPUS), ""])
     print(f"{torch_args=}\n{train_kwargs=}")
+
+    run = wandb.init(
+        entity='llama2d',
+        # Set the project where this run will be logged
+        project="finetuning",
+        # Track hyperparameters and run metadata
+        config={
+            "learning_rate": 0.01,
+            "epochs": 10,
+        }
+    )
+    wandb.log({"accuracy": 13.37, "loss": 1234})
+    run.log_code()
 
     elastic_launch(
         config=config_from_args(torch_args)[0],
